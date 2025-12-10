@@ -34,6 +34,7 @@ type Config struct {
 	ExportStackFrameTypes            []string
 	IgnoreProfilesWithoutContainerID bool
 	FilterSampleTypes                []string
+	FilterExecutableNames            []string
 }
 
 type profilesServer struct {
@@ -113,6 +114,10 @@ func dumpProfile(config Config, pd pprofile.Profiles) {
 
 				for l := 0; l < samples.Len(); l++ {
 					sample := samples.At(l)
+					executableName := getAttributeValue(sample.AttributeIndices(), attributeTable, stringTable, "process.executable.name")
+					if len(config.FilterExecutableNames) > 0 && !slices.Contains(config.FilterExecutableNames, executableName) {
+						continue
+					}
 
 					fmt.Println("------------------- New Sample --------------------")
 
@@ -185,6 +190,20 @@ func dumpProfile(config Config, pd pprofile.Profiles) {
 	}
 }
 
+func getAttributeValue(attrs pcommon.Int32Slice, attrTable pprofile.KeyValueAndUnitSlice, stringTable pcommon.StringSlice, key string) string {
+	for _, idx := range attrs.All() {
+		attr := attrTable.At(int(idx))
+
+		if stringTable.At(int(attr.KeyStrindex())) != key {
+			continue
+		}
+
+		return attr.Value().AsString()
+	}
+
+	return ""
+}
+
 func main() {
 	log := slog.Default()
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
@@ -202,6 +221,7 @@ func main() {
 		ExportStackFrames:                true,
 		IgnoreProfilesWithoutContainerID: false,
 		FilterSampleTypes:                []string{"events"},
+		FilterExecutableNames:            []string{},
 	}))
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
